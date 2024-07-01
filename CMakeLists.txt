@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.4...3.22)
-project(openldap-auth-ldap-novo
+project(openvpn-auth-ldap-novo
 	VERSION 0.1
 	DESCRIPTION "An OpenVPN plugin for using LDAP BIND as an authentication method"
 	LANGUAGES C
@@ -23,6 +23,6 @@ add_subdirectory(src)
 
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
-	${CMAKE_CURRENT_BINARY_DIR}/openldap-auth-ldap-novo-config-version.cmake
+	${CMAKE_CURRENT_BINARY_DIR}/openvpn-auth-ldap-novo-config-version.cmake
 	COMPATIBILITY SameMajorVersion
 )
