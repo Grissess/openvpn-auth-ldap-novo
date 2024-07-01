@@ -267,6 +267,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 		/* Safety: end > start because the search starts at start+1 */
 		memcpy(encoded, start + 1, (end - start) - 1);
 		encoded[(end - start) - 1] = 0;
+		free(password);  /* as was allocated by lookup_var--we don't need it anymore */
 		/* Safety: overflow check here is tricky, we're admittedly assuming the password length is sane */
 		buffer_size = ((size_t)(end - start) * 3 + 3) / 4 + 1;
 		password = malloc(buffer_size);
