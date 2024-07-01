@@ -8,6 +8,8 @@
 #define LDAP_DEPRECATED 1
 #include <ldap.h>
 
+#include "base64.h"
+
 static char *MODULE = "openvpn-auth-ldap-novo";
 
 struct plugin_state {
@@ -55,8 +57,8 @@ static char *lookup_var(const char **env, const char *name) {
 	return NULL;
 }
 
-/* We're using the base64 functions */
-OPENVPN_EXPORT int openvpn_plugin_min_version_required_v1() { return 5; }
+/* Ideally, we'd use the provided base64 functions, but they're still rare in the wild, so we bring our own */
+OPENVPN_EXPORT int openvpn_plugin_min_version_required_v1() { return 1; }
 #define CHECK_VERSION(ver) do { if((ver) < openvpn_plugin_min_version_required_v1()) { \
 	fprintf(stderr, "%s: Incompatible versions (required %d, actual %d)\n", \
 			MODULE, \
@@ -176,6 +178,11 @@ OPENVPN_EXPORT int openvpn_plugin_open_v3(const int v3structver,
 		}
 	}
 
+	{
+		int version = LDAP_VERSION3;
+		ldap_set_option(NULL, LDAP_OPT_PROTOCOL_VERSION, &version);
+	}
+
 	ret->type_mask = OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_AUTH_USER_PASS_VERIFY);
 	ret->handle = context;
 	return OPENVPN_PLUGIN_FUNC_SUCCESS;
@@ -188,7 +195,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 	struct plugin_state *context = (struct plugin_state *)args->handle;
 	LDAP *ldap, *ldap_user;
 	LDAPMessage *search = NULL, *entry;
-	char *filter, *username, *password, *dn, buffer;
+	char *filter, *username, *password, *dn, buffer, *msg;
 	int err;
 	int res = OPENVPN_PLUGIN_FUNC_ERROR;
 
@@ -204,17 +211,30 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 				"Failed to initialize connection to LDAP server (uri %s): (%d)%s",
 				context->ldap_uri, err, ldap_err2string(err)
 		);
+		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+		if(msg) {
+			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+			ldap_memfree(msg);
+		}
 		goto out;
 	}
 
 	if(context->bind_dn) {
+		context->callbacks->plugin_log(PLOG_DEBUG, MODULE, "BIND as '%s'", context->bind_dn);
 		if((err = ldap_simple_bind_s(ldap, context->bind_dn, context->bind_pw)) != LDAP_SUCCESS) {
 			context->callbacks->plugin_log(PLOG_WARN, MODULE,
 					"Failed to bind to LDAP server (uri %s) as %s: (%d)%s",
 					context->ldap_uri, context->bind_dn, err, ldap_err2string(err)
 			);
+			ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+			if(msg) {
+				context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+				ldap_memfree(msg);
+			}
 			goto out_free_ldap;
 		}
+	} else {
+		context->callbacks->plugin_log(PLOG_DEBUG, MODULE, "Anonymous BIND (no bind_dn set)");
 	}
 
 	username = lookup_var(args->envp, "username");
@@ -254,7 +274,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 			context->callbacks->plugin_log(PLOG_WARN, MODULE, "Out of memory parsing SCRV1 password");
 			goto out_free_creds;
 		}
-		if((actual_size = context->callbacks->plugin_base64_decode(encoded, password, buffer_size)) < 0) {
+		if((actual_size = openvpn_base64_decode(encoded, password, buffer_size)) < 0) {
 			free(encoded);
 			context->callbacks->plugin_log(PLOG_WARN, MODULE, "Failed to decode SCRV1 password");
 			goto out_free_creds;
@@ -285,16 +305,26 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 			context->base, context->scope, filter,
 			NULL, 0, NULL, NULL, NULL, 1, &search
 	)) != LDAP_SUCCESS) {
-		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "Unable to search '%s' in '%s': (%d)%s",
-				filter, context->ldap_uri, err, ldap_err2string(err)
+		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "Unable to search '%s' in '%s' base '%s': (%d)%s",
+				filter, context->ldap_uri, context->base, err, ldap_err2string(err)
 		);
+		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+		if(msg) {
+			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+			ldap_memfree(msg);
+		}
 		goto out_free_search;
 	}
 
 	if(!(entry = ldap_first_entry(ldap, search))) {
-		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "No results for '%s' in '%s'",
-				filter, context->ldap_uri
+		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "No results for '%s' in '%s' base '%s'",
+				filter, context->ldap_uri, context->base
 		);
+		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+		if(msg) {
+			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+			ldap_memfree(msg);
+		}
 		goto out_free_search;
 	}
 	dn = ldap_get_dn(ldap, entry);
@@ -305,6 +335,11 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 				"Failed to connect to LDAP server (uri '%s') to test user credentials: (%d)%s",
 				context->ldap_uri, err, ldap_err2string(err)
 		);
+		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+		if(msg) {
+			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+			ldap_memfree(msg);
+		}
 		goto out_free_dn;
 	}
 
@@ -313,10 +348,16 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 				"Failed to bind as '%s' to '%s': (%d)%s",
 				dn, context->ldap_uri, err, ldap_err2string(err)
 		);
+		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
+		if(msg) {
+			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
+			ldap_memfree(msg);
+		}
 		goto out_free_ldap_user;
 	}
 
 	/* If we're here, success: the password was valid for the DN. */
+	context->callbacks->plugin_log(PLOG_NOTE, MODULE, "Successful login for '%s' as '%s'\n", username, dn);
 	res = OPENVPN_PLUGIN_FUNC_SUCCESS;
 
 out_free_ldap_user:
@@ -336,13 +377,8 @@ out:
 	return res;
 }
 
-/*
-	FAIL_IF((err = ldap_initialize(&context->ldap, context->ldap_uri)) != LDAP_SUCCESS,
-			"Failed to initialize connection to LDAP server (uri %s): (%d)%s",
-			context->ldap_uri, err, ldap_err2string(err)
-	);
-	FAIL_IF((err = ldap_simple_bind_s(context->ldap, context->bind_dn, context->bind_pw)) != LDAP_SUCCESS,
-			"Failed to initially bind to LDAP server (uri %s) as %s: (%d)%s",
-			context->ldap_uri, context->bind_dn, err, ldap_err2string(err)
-	);
-*/
+OPENVPN_EXPORT void openvpn_plugin_close_v1(openvpn_plugin_handle_t handle) {
+	struct plugin_state *context = (struct plugin_state *)handle;
+	context->callbacks->plugin_log(PLOG_NOTE, MODULE, "Shutting down, goodbye");
+	free(context);
+}

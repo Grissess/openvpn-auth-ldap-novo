@@ -38,3 +38,10 @@ they are:
 - `bind-pw-file`: Path to a file containing the bind password. Ineffective if
   `bind-pw` is also specified. The file is read once during plugin
   startup--thus as the same credential as OpenVPN initially has.
+
+## License
+
+This plugin is GPL version 3 or later.
+
+Code from OpenVPN itself is included under the GPL version 2, without regard to
+the "linking against" exception. See their distribution for details.

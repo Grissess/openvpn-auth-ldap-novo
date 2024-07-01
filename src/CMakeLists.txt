@@ -1,5 +1,5 @@
 add_library(openvpn-auth-ldap-novo-plugin SHARED
-	plugin.c
+	plugin.c base64.c
 )
 target_link_libraries(openvpn-auth-ldap-novo-plugin ${OPENLDAP_LIBRARIES})
 target_include_directories(openvpn-auth-ldap-novo-plugin PUBLIC ${OPENLDAP_INCLUDE_DIRS})
