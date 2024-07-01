@@ -206,16 +206,21 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 		goto out;
 	}
 
+#define LDAP_ADDITIONAL_INFO do { \
+	ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg); \
+	if(msg) { \
+		context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg); \
+		ldap_memfree(msg); \
+	} \
+} while(0)
+
+
 	if((err = ldap_initialize(&ldap, context->ldap_uri)) != LDAP_SUCCESS) {
 		context->callbacks->plugin_log(PLOG_WARN, MODULE,
 				"Failed to initialize connection to LDAP server (uri %s): (%d)%s",
 				context->ldap_uri, err, ldap_err2string(err)
 		);
-		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-		if(msg) {
-			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-			ldap_memfree(msg);
-		}
+		LDAP_ADDITIONAL_INFO;
 		goto out;
 	}
 
@@ -226,11 +231,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 					"Failed to bind to LDAP server (uri %s) as %s: (%d)%s",
 					context->ldap_uri, context->bind_dn, err, ldap_err2string(err)
 			);
-			ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-			if(msg) {
-				context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-				ldap_memfree(msg);
-			}
+			LDAP_ADDITIONAL_INFO;
 			goto out_free_ldap;
 		}
 	} else {
@@ -308,11 +309,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "Unable to search '%s' in '%s' base '%s': (%d)%s",
 				filter, context->ldap_uri, context->base, err, ldap_err2string(err)
 		);
-		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-		if(msg) {
-			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-			ldap_memfree(msg);
-		}
+		LDAP_ADDITIONAL_INFO;
 		goto out_free_search;
 	}
 
@@ -320,11 +317,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 		context->callbacks->plugin_log(PLOG_NOTE, MODULE, "No results for '%s' in '%s' base '%s'",
 				filter, context->ldap_uri, context->base
 		);
-		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-		if(msg) {
-			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-			ldap_memfree(msg);
-		}
+		LDAP_ADDITIONAL_INFO;
 		goto out_free_search;
 	}
 	dn = ldap_get_dn(ldap, entry);
@@ -335,11 +328,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 				"Failed to connect to LDAP server (uri '%s') to test user credentials: (%d)%s",
 				context->ldap_uri, err, ldap_err2string(err)
 		);
-		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-		if(msg) {
-			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-			ldap_memfree(msg);
-		}
+		LDAP_ADDITIONAL_INFO;
 		goto out_free_dn;
 	}
 
@@ -348,11 +337,7 @@ OPENVPN_EXPORT int openvpn_plugin_func_v3(const int v3structver,
 				"Failed to bind as '%s' to '%s': (%d)%s",
 				dn, context->ldap_uri, err, ldap_err2string(err)
 		);
-		ldap_get_option(ldap, LDAP_OPT_DIAGNOSTIC_MESSAGE, &msg);
-		if(msg) {
-			context->callbacks->plugin_log(PLOG_WARN, MODULE, "(Additional LDAP information: %s)", msg);
-			ldap_memfree(msg);
-		}
+		LDAP_ADDITIONAL_INFO;
 		goto out_free_ldap_user;
 	}
 
